@@ -104,53 +104,54 @@ func (b *EventUpdateLogic) L1InsertOrUpdate(ctx context.Context, l1FetcherResult
 }
 
 func (b *EventUpdateLogic) updateL2WithdrawMessageInfos(ctx context.Context, batchIndex, startBlock, endBlock uint64) error {
-	l2WithdrawMessages, err := b.crossMessageOrm.GetL2WithdrawalsByBlockRange(ctx, startBlock, endBlock)
-	if err != nil {
-		log.Error("failed to get L2 withdrawals by batch index", "batch index", batchIndex, "err", err)
-		return err
-	}
+    l2WithdrawMessages, err := b.crossMessageOrm.GetL2WithdrawalsByBlockRange(ctx, startBlock, endBlock)
+    if err != nil {
+        log.Error("failed to get L2 withdrawals by batch index", "batch index", batchIndex, "err", err)
+        return err
+    }
 
-	if len(l2WithdrawMessages) == 0 {
-		return nil
-	}
+    if len(l2WithdrawMessages) == 0 {
+        return nil
+    }
 
-	withdrawTrie := utils.NewWithdrawTrie()
-	lastMessage, err := b.crossMessageOrm.GetL2LatestFinalizedWithdrawal(ctx)
-	if err != nil {
-		log.Error("failed to get latest L2 finalized sent message event", "err", err)
-		return err
-	}
+    withdrawTrie := utils.NewWithdrawTrie()
+    lastMessage, err := b.crossMessageOrm.GetL2LatestFinalizedWithdrawal(ctx)
+    if err != nil {
+        log.Error("failed to get latest L2 finalized sent message event", "err", err)
+        return err
+    }
 
-	if lastMessage != nil {
-		withdrawTrie.Initialize(lastMessage.MessageNonce, common.HexToHash(lastMessage.MessageHash), lastMessage.MerkleProof)
-	}
+    if lastMessage != nil {
+        withdrawTrie.Initialize(lastMessage.MessageNonce, common.HexToHash(lastMessage.MessageHash), lastMessage.MerkleProof)
+    }
 
-	if withdrawTrie.NextMessageNonce != l2WithdrawMessages[0].MessageNonce {
-		log.Error("nonce mismatch", "expected next message nonce", withdrawTrie.NextMessageNonce, "actuall next message nonce", l2WithdrawMessages[0].MessageNonce)
-		return fmt.Errorf("nonce mismatch")
-	}
+    if withdrawTrie.NextMessageNonce != l2WithdrawMessages[0].MessageNonce {
+        log.Error("nonce mismatch", "expected next message nonce", withdrawTrie.NextMessageNonce, "actuall next message nonce", l2WithdrawMessages[0].MessageNonce)
+        return fmt.Errorf("nonce mismatch")
+    }
 
-	messageHashes := make([]common.Hash, len(l2WithdrawMessages))
-	for i, message := range l2WithdrawMessages {
-		messageHashes[i] = common.HexToHash(message.MessageHash)
-	}
+    messageHashes := make([]common.Hash, len(l2WithdrawMessages))
+    for i, message := range l2WithdrawMessages {
+        messageHashes[i] = common.HexToHash(message.MessageHash)
+    }
 
-	proofs := withdrawTrie.AppendMessages(messageHashes)
+    proofs := withdrawTrie.AppendMessages(messageHashes)
 
-	for i, message := range l2WithdrawMessages {
-		message.MerkleProof = proofs[i]
-		message.RollupStatus = int(orm.RollupStatusTypeFinalized)
-		message.BatchIndex = batchIndex
-	}
+    for i, message := range l2WithdrawMessages {
+        message.MerkleProof = proofs[i]
+        message.RollupStatus = int(orm.RollupStatusTypeFinalized)
+        message.BatchIndex = batchIndex
+    }
 
-	if dbErr := b.crossMessageOrm.UpdateBatchIndexRollupStatusMerkleProofOfL2Messages(ctx, l2WithdrawMessages); dbErr != nil {
-		log.Error("failed to update batch index and rollup status and merkle proof of L2 messages", "err", dbErr)
-		return dbErr
-	}
+    if dbErr := b.crossMessageOrm.UpdateBatchIndexRollupStatusMerkleProofOfL2Messages(ctx, l2WithdrawMessages); dbErr != nil {
+        log.Error("failed to update batch index and rollup status and merkle proof of L2 messages", "err", dbErr)
+        return dbErr
+    }
 
-	b.eventUpdateLogicL2MessageNonceUpdateHeight.Set(float64(withdrawTrie.NextMessageNonce - 1))
-	return nil
+    b.eventUpdateLogicL2MessageNonceUpdateHeight.Set(float64(withdrawTrie.NextMessageNonce - 1))
+    return nil
 }
+
 
 // UpdateL1BatchIndexAndStatus updates L1 finalized batch index and status
 func (b *EventUpdateLogic) UpdateL1BatchIndexAndStatus(ctx context.Context, height uint64) error {
